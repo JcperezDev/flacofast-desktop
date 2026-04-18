@@ -1,0 +1,108 @@
+name: Build Windows Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Branch, tag, or SHA to build from the private source repository.
+        required: true
+        default: main
+      release_tag:
+        description: Public release tag to create or update.
+        required: true
+        default: v0.1.0
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout release repository
+        uses: actions/checkout@v4
+
+      - name: Checkout private source
+        uses: actions/checkout@v4
+        with:
+          repository: JcperezDev/flacofast
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          ref: ${{ inputs.source_ref }}
+          path: source
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: source/pnpm-lock.yaml
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install dependencies
+        working-directory: source
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Windows app
+        working-directory: source
+        run: pnpm tauri build --target x86_64-pc-windows-msvc
+
+      - name: Prepare public download asset
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+
+          $nsis = Get-ChildItem `
+            -Path "source/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis" `
+            -Filter "*.exe" `
+            -File `
+            -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+
+          $plain = Get-Item `
+            -Path "source/src-tauri/target/x86_64-pc-windows-msvc/release/flacofast.exe" `
+            -ErrorAction SilentlyContinue
+
+          $source = if ($nsis) { $nsis } elseif ($plain) { $plain } else { $null }
+          if (-not $source) {
+            Write-Error "No Windows .exe was produced by the Tauri build."
+          }
+
+          Copy-Item $source.FullName "artifacts/FlacoFast.exe" -Force
+          Write-Output "Prepared $($source.FullName) as artifacts/FlacoFast.exe"
+
+      - name: Publish public release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ inputs.release_tag }}"
+          $repo = "${{ github.repository }}"
+
+          gh release view $tag --repo $repo *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag `
+              --repo $repo `
+              --title "FlacoFast $tag" `
+              --notes "Descarga FlacoFast para Windows." `
+              --latest
+          } else {
+            gh release edit $tag `
+              --repo $repo `
+              --title "FlacoFast $tag" `
+              --notes "Descarga FlacoFast para Windows." `
+              --latest
+          }
+
+          gh release upload $tag "artifacts/FlacoFast.exe" --repo $repo --clobber
+          Write-Output "Download URL: https://github.com/JcperezDev/flacofast-desktop/releases/latest/download/FlacoFast.exe"
