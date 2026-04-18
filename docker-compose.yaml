@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-flacofast}
+      POSTGRES_USER: ${POSTGRES_USER:-flacofast}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_postgres_password}
+    volumes:
+      - flacofast_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: "${DATABASE_URL:-postgresql://flacofast:change_this_postgres_password@postgres:5432/flacofast}"
+      DATABASE_SSL: "${DATABASE_SSL:-false}"
+      JWT_SECRET: "${JWT_SECRET}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
+      ADMIN_NAME: "${ADMIN_NAME:-Owner Admin}"
+      VPS_HOST: "${VPS_HOST}"
+      WIREGUARD_PORT: "${WIREGUARD_PORT:-51820}"
+      SERVER_PUBLIC_KEY: "${SERVER_PUBLIC_KEY:-}"
+      VPS_NODE_NAME: "${VPS_NODE_NAME:-Main VPS}"
+      VPS_REGION: "${VPS_REGION:-US East}"
+      VPS_DNS: "${VPS_DNS:-1.1.1.1}"
+      INTERFACE_NAME: "${INTERFACE_NAME:-flacofast0}"
+      CLIENT_ADDRESS: "${CLIENT_ADDRESS:-10.8.0.2/32}"
+      ALLOWED_IPS: "${ALLOWED_IPS:-0.0.0.0/0, ::/0}"
+      CORS_ORIGIN: "${CORS_ORIGIN:-*}"
+
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  flacofast_postgres_data:
