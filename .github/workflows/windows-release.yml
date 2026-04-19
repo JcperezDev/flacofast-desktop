@@ -1,0 +1,65 @@
+name: Windows Desktop Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (semver)
+        required: true
+        type: string
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+        with:
+          repository: JcperezDev/flacofast
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.FLACOFAST_DESKTOP_PAT }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install dependencies
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure git identity
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Validate desktop release token
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FLACOFAST_DESKTOP_PAT }}
+        run: |
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "Missing secret FLACOFAST_DESKTOP_PAT (PAT with read access to JcperezDev/flacofast and write access to JcperezDev/flacofast-desktop)." >&2
+            exit 1
+          fi
+
+      - name: Build and publish Windows release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FLACOFAST_DESKTOP_PAT }}
+        run: bash scripts/release-desktop.sh "${{ github.event.inputs.version }}"
